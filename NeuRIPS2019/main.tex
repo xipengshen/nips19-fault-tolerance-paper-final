@@ -1,0 +1,719 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+    \PassOptionsToPackage{numbers, compress, sort}{natbib}
+% before loading neurips_2019
+
+% ready for submission
+% \usepackage{neurips_2019}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+% \usepackage[preprint]{neurips_2019}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+\usepackage[final]{neurips_2019}
+
+% to avoid loading the natbib package, add option nonatbib:
+%     \usepackage[nonatbib]{neurips_2019}
+% \usepackage[numbers,sort]{natbib}
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+
+
+%% added by Hui 
+% \usepackage{cite}
+\usepackage{wrapfig}
+\usepackage{bbm}
+\usepackage{mwe}
+\usepackage{soul}
+\usepackage{subcaption}
+\usepackage{cleveref}
+\usepackage{graphicx}
+\usepackage[english]{babel}
+% \usepackage[utf8x]{inputenc}
+\usepackage{color}
+\usepackage{multirow}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+\newcommand{\algorithmicbreak}{\textbf{break}}
+\newcommand{\BREAK}{\STATE \algorithmicbreak}
+\renewcommand{\algorithmiccomment}[1]{// #1}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{observation}{Observation}
+\newtheorem{definition}{Definition}
+\newtheorem{principle}{Principle}
+\newcommand{\TODO}[1]{{\it \color{blue}\{TODO: #1\}}}
+\newcommand{\MOD}[1]{{\it \color{blue}\{MOD: #1\}}}
+\usepackage{mathtools}
+\DeclarePairedDelimiter{\ceil}{\lceil}{\rceil}
+
+\usepackage[
+  separate-uncertainty = true,
+  multi-part-units = repeat
+]{siunitx}
+
+\title{In-Place Zero-Space Memory Protection for CNN}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+\author{%
+  Hui Guan$^{1}$, Lin Ning$^{1}$, Zhen Lin$^1$, Xipeng Shen$^1$, Huiyang Zhou$^1$,  Seung-Hwan Lim$^2$  \\
+  $^1$North Carolina State University, Raleigh, NC, 27695\\
+  $^2$Oak Ridge National Laboratory, Oak Ridge, TN 37831 \\
+  \texttt{\{hguan2, lning, zlin4, xshen5, hzhou\}@ncsu.edu, lims1@ornl.gov}\\
+  % examples of more authors
+  % \AND
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Convolutional Neural Networks (CNN) are being actively explored for safety-critical applications such as autonomous vehicles and aerospace, where it is essential to ensure the reliability of inference results in the presence of possible memory faults. Traditional methods such as error correction codes (ECC) and Triple Modular Redundancy (TMR) are CNN-oblivious and incur substantial memory overhead and energy cost. This paper introduces {\em in-place zero-space ECC} assisted with a new training scheme {\em weight distribution-oriented training}. The new method provides the first known zero space cost memory protection for CNNs without compromising the reliability offered by traditional ECC. 
+
+% an adaptive in-place near-zero cost fault protection mechanism that relies on CNN-specific properties to reduce protection overhead while provides the same protection guarantee as ECC. Experiments on three popular CNNs, VGG-16, ResNet18, and SqueezeNet, under various memory fault rates demonstrate the effectiveness of the proposed approach.       
+
+
+%   The abstract paragraph should be indented \nicefrac{1}{2}~inch (3~picas) on
+%   both the left- and right-hand margins. Use 10~point type, with a vertical
+%   spacing (leading) of 11~points.  The word \textbf{Abstract} must be centered,
+%   bold, and in point size 12. Two line spaces precede the abstract. The abstract must be limited to one paragraph.
+\end{abstract}
+
+\section{Introduction}
+
+As CNNs are increasingly explored for safety-critical applications such as autonomous vehicles and aerospace, reliability of CNN inference is becoming an important concern. A key threat is memory faults (e.g., bit flips in memory), which may result from environment perturbations, temperature variations, voltage scaling, manufacturing defects, wear-out, and radiation-induced soft errors. These faults change the stored data (e.g., CNN parameters), which may cause large deviations of the inference results~\cite{li2017understanding, reagen2018ares, reagen2016minerva}. In this work, fault rate is defined as the ratio between the number of bit flips experienced before correction is applied and the total number of bits. 
+
+Existing solutions have resorted to general memory fault protection mechanisms, such as Error Correction Codes (ECC) hardware~\cite{sridharan2015memory}, spatial redundancy, and radiation hardening~\cite{yu2010overview}. Being CNN-oblivious, these protections incur large costs. ECC, for instance, uses eight extra bits in protecting 64-bit memory; spatial redundancy requires at least two copies of CNN parameters to correct one error (called Triple Modular Redundancy (TMR)~\cite{lyons1962use}); radiation hardening is subject to substantial area overhead and hardware cost. The spatial, energy, and hardware costs are especially concerning for safety-critical CNN inferences; as they often execute on resource-constrained (mobile) devices, the costs worsen the limit on model size and capacity, and increase the cost of the overall AI solution. 
+
+To address the fundamental tension between the needs for reliability and the needs for space/energy/cost efficiency, this work proposes the first zero space cost memory protection for CNNs. The design capitalizes on the opportunities brought by the distinctive properties of CNNs. It further amplifies the opportunities by introducing a novel training scheme, {\em Weight Distribution-Oriented Training (WOT)}, to regularize the weight distributions of CNNs such that they become more amenable for zero-space protection. It then introduces a novel protection method, {\em in-place zero-space ECC}, which removes all space cost of ECC protection while preserving protection guarantees. 
+
+
+
+
+Experiments on VGG16, ResNet18, and SqueezeNet validate the effectiveness of the proposed solution. Across all tested scenarios, the method provides protections consistently comparable to those offered by existing hardware ECC logic, while removing all space costs. It hence offers a promising replacement of existing protection schemes for CNNs.
+
+
+
+\section{Related Work}
+%% old work on ANN
+There are some early studies on fault tolerance of earlier neural networks (NN)~\cite{phatak1995complete, protzel1993performance, torres2017fault}; they examined the performance degradation of NNs with various fault models on networks that differ from modern CNNs in both network topologies and and model complexities.  
+
+% recent work on CNN
+Fault tolerance of deep neural networks (DNN) has recently drawn increasing attentions. 
+Li et al.~\cite{li2017understanding} studied the soft error propagation in DNN accelerators and proposed to leverage symptom-based error detectors for detecting errors and a hardware-based technique, {\em selective latch hardening},  for detecting and correcting data-path faults. A recent work~\cite{reagen2018ares, arechiga2018the} conducted some empirical studies to quantify the fault tolerance of DNNs to memory faults and revealed that DNN fault tolerance varies with respect to model, layer type, and structure. Zhang et al.~\cite{zhang2018analyzing} proposed fault-aware pruning with retraining to mitigate the impact of permanent faults for systolic array-based CNN accelerators (e.g., TPUs). They focused only on faults in the data-path and ignored faults in the memory.
+Qin et al.~\cite{qin2017robustness} studied the performance degradation of 16-bit quantized CNNs under different bit flip rates and proposed to set values of detected erroneous weights as zeros to mitigate the impact of faults. 
+These prior works focused mainly on the characterization of DNN's fault tolerance with respect to various data types and network topologies. While several software-based protection solutions were explored, they are preliminary. Some can only detect but not correct errors (e.g. detecting extreme values~\cite{li2017understanding}), others have limited protection capability (e.g. setting faulty weights to zero~\cite{qin2017robustness}).
+
+%% accelerator design: low energy 
+Some prior work proposes designs of energy-efficient DNN accelerators by exploiting fault tolerance of DNNs~\cite{temam2012defect, kim2018energy, zhang2018thundervolt}. An accelerator design~\cite{reagen2016minerva} optimizes SRAM power by reducing the supply voltage. It leverages active hardware fault detection coupled with bit masking that shifts data towards zero to mitigate the impact of bit flips on DNNs' model accuracy without the need of re-training. 
+Similar hardware faults detection techniques are later exploited in \cite{whatmough201714, salami2018resilience, zhang2018thundervolt, hacene2019training} to improve fault tolerance of DNNs. Azizimazreah et al.~\cite{azizimazreah2018tolerating} proposed a novel memory cell designed to eliminate soft errors while achieving a low power consumption.
+These designs are for some special accelerators rather than general DNN reliability protection. They are still subject to various costs and offer no protection guarantees as existing ECC protections do. This current work aims to reducing the space cost of protection to zero without compromising the reliability of existing protections.
+
+% \TODO{We need to state some key differences from our work: These designs require dramatic changes to hardware and are still subject to various costs. This current work aims to reducing the protection cost to near zero without compromising the reliability of existing protections.}
+
+
+% Temam et al.~\cite{temam2012defect} introduced a CNN accelerator 
+% defect-tolerant energy-efficient neural network accelerator by the tolerance of neural networks on faults. 
+% Reagen et al.~\cite{reagen2016minerva} designed a low-power highly-accurate CNN accelerator that optimizes SRAM power by reducing the supply voltage. They leverages active hardware fault detection coupled with bit masking that shifts data towards zero to mitigate the impact of bit flips to CNNs' model accuracy without the need of re-training. 
+% Similar hardware faults detection techniques are later exploited in \cite{whatmough201714, salami2018resilience, zhang2018thundervolt, hacene2019training} to improve fault tolerance of CNNs. Azizimazreah et al.~\cite{azizimazreah2018tolerating} proposed a novel memory cell designed to eliminate soft errors while achieving a low power consumption.  
+
+% The protection solutions in these works rely on hardware modification to support their hardware-based error detection/mitigation schemes, making them impossible to be applied to general CNN accelerators. 
+
+\section{Premises and Scopes}
+
+This work focuses on protections of 8-bit quantized CNN models. 
+% 8-bit quantization has been the de facto step before model deployment to reduce model size while providing lower latency with little degradation in model accuracy. 
+On the one hand, although the optimal bit width for a network depends on its weight distribution and might be lower than 8, we have observed that 8-bit quantization is a prevalent, robust, and general choice to reduce model size and latency while preserving accuracy. In our experiments, both activations and weights are quantized to 8-bit. Existing libraries that support quantized CNNs (e.g. NVIDIA TensorRT~\cite{migacz20178}, Intel MKL-DNN~\cite{MKLDNN}, Google's GEMMLOWP~\cite{jacob2017gemmlowp}, Facebook's QNNPACK~\cite{QNNPACK}) mainly target for fast operators using 8-bit instead of lower bit width.
+On the other hand, previous studies~\cite{li2017understanding, reagen2018ares} have suggested that CNNs should use data types that provide just-enough numeric value range and precision to increase its fault tolerance. Our explorations on using higher precision including float32 for representing CNN parameters also show that 8-bit quantized models are the most resilient to memory faults. 
+
+The quantization algorithm we used is symmetric range-based linear quantization that is well-supported by major CNN frameworks (e.g. Tensorflow~\cite{jacob2018quantization}, Pytorch~\cite{neta_zmora_2018_1297430}). Specifically, let $X$ be a floating-point tensor and $X^q$ be the 8-bit quantized version. $X$ can be either weights or activations from a CNN. The quantization is based on the following formula:
+\begin{equation}
+    X^q = round(X\frac{2^{n-1}-1}{\max\{|X|\}}),
+\end{equation}
+where $n$ is the number of bits used for quantization. In our case, $n=8$.  The number of bits used for accumulation is 32. Biases, if exist, are quantized to 32 bit integer. 
+
+Our work protects only weights for two reasons. Firstly, weights are usually kept in the memory. The longer they are kept, the higher the number of bit flips they will suffer from. This easily results in a high fault rate (e.g. 1e-3) for weights. Activations, however, are useful only during an inference process. Given the slight chance of having a bit flip during an inference process (usually in milliseconds), protecting activations is not as pressing as protecting weights. Secondly, previous work~\cite{reagen2018ares} has shown that activations are much less sensitive to faults compared with weights.  
+
+Error Correction Codes (ECC) is commonly used in computer systems to correct memory faults. They are usually described as $(k, d, t)$ code for length $k$ code word, length $d$ data, and $t$-bit error correction. The number of required check bits is $k-d$.
+
+\section{In-Place Zero-Space ECC}
+% \begin{observation}\label{ob:small_value}
+% Weights of a well-trained CNN are mostly small values.
+% \end{observation}
+
+Our proposed method, in-place zero-space ECC, builds on the following observation:{\em Weights of a well-trained CNN are mostly small values.} The \textit{Percentage} rows in Table~\ref{tab:weight_distribution} show the distributions of the absolute values of weights in some popular 8-bit quantized CNN models. The absolute values of more than 99\% of the weights are less than 64. Even though eight bits are used to represent each weight, if we already know that the absolute value of a weight is less than 64, the number of effective bits to represent the value would be at most seven, and the remaining bit could be possibly used for other purposes---such as error correction. We call it a {\em non-informative bit}.
+
+\begin{table}[]
+\scriptsize  
+\centering 
+\setlength{\tabcolsep}{0.1cm}
+\caption{Accuracy and weight distribution of 8-bit quantized CNN models on ImageNet. The percentage rows use absolute values.}
+\label{tab:weight_distribution}
+\begin{tabular}{|l|l||l|l|l|l|l|l|l|l|l|}
+\hline
+\multicolumn{2}{|l|}{Model} & AlexNet & VGG16 & VGG16\_bn & Inception\_V3 & ResNet18 & ResNet34 & ResNet50 & ResNet152 & SqueezeNet \\ \hline
+\multicolumn{2}{|l|}{\#weights} & 61.1M & 138.4M & 138.4M & 27.1M & 11.7M & 21.8M & 25.5M & 60.1M & 1.2M \\ \hline\hline
+\multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}Accuracy \\ (\%)\end{tabular}} & Float32 & 56.52 & 71.59 & 73.36 & 69.54 & 69.76 & 73.31 & 76.13 & 78.31 & 58.09 \\ \cline{2-11} 
+ & Int8 & 55.8 & 71.51 & 72.01 & 68.07 & 69.07 & 72.83 & 75.33 & 77.79 & 57.01 \\ \hline
+\multirow{3}{*}{\begin{tabular}[c]{@{}l@{}}Percentage\\ (\%)\end{tabular}} & {[}0, 32) & 95.09 & 97.69 & 98.83 & 97.98 & 99.66 & 99.76 & 99.65 & 99.49 & 95.16 \\ \cline{2-11} 
+ & {[}32, 64) & 4.88 & 2.27 & 1.16 & 1.96 & 0.32 & 0.23 & 0.34 & 0.49 & 4.62 \\ \cline{2-11} 
+ & {[}64, 128{]} & 0.03 & 0.04 & 0.01 & 0.06 & 0.02 & 0.01 & 0.01 & 0.01 & 0.22 \\ \hline
+\end{tabular}
+\end{table}
+
+%%%% old table in submitted nips paper %%%
+% \begin{table}[]
+% \scriptsize  
+% \centering 
+% % \setlength{\tabcolsep}{0.04cm}
+% \caption{Accuracy and weight distribution of 8-bit quantized CNN models on ImageNet. Accuracies are measured using 5K images. The percentage rows use absolute values.}
+% \label{tab:weight_distribution}
+% \begin{tabular}{|l|l|l|l|l|l|l|l|l|l|}
+% \hline
+% \multicolumn{2}{|l|}{Model} & AlexNet & VGG16 & VGG16\_bn & ResNet18 & ResNet34 & Inception\_V3 & DenseNet & SqueezeNet \\ \hline\hline
+% \multicolumn{2}{|l|}{\#weights} & 61.1M & 138.3M & 138.3M & 11.7M & 21.8M & 27.1M & 28.5M & 1.2M \\ \hline\hline
+% \multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}Accuracy\\ (\%)\end{tabular}} & Float32 & 64.86 & 79.2 & 80.48 & 76.54 & 79.88 & 77.14 & 83.02 & 67.46 \\ \cline{2-10} 
+%  & Int8 & 64.8 & 79.36 & 80.14 & 76.46 & 79.88 & 76.58 & 83.04 & 66.86 \\ \hline\hline
+% \multirow{3}{*}{\begin{tabular}[c]{@{}l@{}}Percentage\\ (\%)\end{tabular}} & {[}0, 32) & 95.09 & 97.69 & 98.84 & 99.56 & 99.72 & 98.23 & 98.79 & 95.16 \\ \cline{2-10} 
+%  & {[}32, 64) & 4.88 & 2.27 & 1.16 & 0.42 & 0.27 & 1.71 & 1.13 & 4.62 \\ \cline{2-10} 
+%  & {[}64, 128) & 0.03 & 0.04 & 0.01 & 0.02 & 0.02 & 0.05 & 0.08 & 0.22 \\ \hline
+% \end{tabular}
+% \end{table}
+
+\begin{wrapfigure}{r}{0.5\textwidth}
+\includegraphics[width=0.5\textwidth]{NeuRIPS2019/images/position/large_weight_distribution_squeezenetImagenet.pdf}
+\caption{Large weight (beyond $[-64, 63]$) distributions in 8-byte (64-bit data) blocks for SqueezeNet on ImageNet. For instance, the first bar in (a) shows that of all the 8-byte data blocks storing  weights, around 380 have a large weight at the first byte.}
+\label{fig:large_weight_distribution}
+\end{wrapfigure}
+
+% \paragraph{Basic Idea} 
+The core idea of  in-place zero-space ECC is to use {\em non-informative bits} in CNN parameters to store error check bits. For example, the commonly used SEC-DED $(64, 57, 1)$ code uses seven check bits to protect 57 data bits for single error correction; they together form a 64-bit code word. If seven out of eight consecutive weights are in range $[-64, 63]$, we can then have seven non-informative bits, one per small weight. The essential idea of  in-place ECC is to use these non-informative bits to store the error check bits for the eight weights. By embedding the check bits into the data, it can hence avoid all space cost.
+
+% \paragraph{Challenges} 
+For the in-place ECC to work, there cannot be more than one large weight in every 8 consecutive weights. And the implementation has to record the locations of the large weights such that the decoding step can find the error check bits from the data. %there are needs for extra data structures and hence space cost to record the locations. 
+% 
+It is, however, important to note that the requirement of recording the locations of large weights would disappear if the large weights are regularly distributed in data---an example is that the only place in which a large weight could appear is the last byte of an 8-byte block. However, the distributions of large weights in CNNs are close to uniform, as Figure~\ref{fig:large_weight_distribution} shows. 
+
+\subsection{WOT}% \TODO{[Hui]1-1.5pages}}
+% \TODO{Explain the theory and implementation of WOT. This part needs revisions. It should first provide an overview of the purpose and method of WOT before diving into the details.}
+
+To eliminate the need of storing large weight locations in in-place ECC, we enhance our design by introducing a new training scheme, namely {\em weight-distribution oriented training (WOT)}. WOT aims to regularize the spatial distribution of large weights such that large values can appear only at specific places. We first formalize the WOT problem and then elaborate our regularized training process.   
+
+Let $W_l$ be the float32 parameters (including both weights and biases) in the $l$-th convolutional layer and $W_l^q$ be their values after quantization. Note that WOT applies to fully-connected layers as well even though our discussion focuses on convolutional layers.  WOT minimizes the sum of the standard cross entropy loss ($f(\{W_l^q\}_{l=1}^{L})$) and weighted weight regularization loss (Frobenius norm with the hyperparameter $\lambda$) subject to some weight distribution constraints on the weights:
+\begin{align}
+    & \min_{\{W_l^q\}} f(\{W_l^q\}_{l=1}^{L}) + \lambda \sum_{l=1}^L\|W_l^q\|_F^2, \label{eq:loss}\\
+    & s.t. \quad W_l^q \in S_l, l = 1, \cdots, L. \label{eq:constraint}
+\end{align}
+
+The weights are a four-dimensional tensor. If flattened, it is a vector of length $N_l\times C_l \times H_l \times W_l$, where $N_l$, $C_l$, $H_l$ and $W_l$ are respectively the number of filters, the number of channels in a filter, the height of the filter, and the width of the filter, in the $l$-th convolutional layer. WOT adds constraints to each 64-bit data block in the flattened weight vectors. 
+% 
+Recall that, for in-place ECC to protect a 64-bit data block, we need seven non-informative bits (i.e., seven small weights in the range $[-64, 63]$) to store the seven check bits. To regularize the positions of large values in weights, the constraint on the weights in the $l$-th convolutional layer can be given by $S_l = \{X|$ the first seven values in every 64-bit data block can have a value in only the range of $[-64, 63]\}$. 
+
+We next describe two potential solutions to the optimization problems.  
+% 
+% Note that the constraints can also be $S_l = \{X|$ the first seven values in every 64-bit data block can only have a value in the range of $[-32, 31]\}$ to enable in-place zero-space ECC with stronger protection strength.  
+% 
+
+\paragraph{ADMM-based Training}
+The above optimization problem can be formulated in the Alternating  Direction  Method  of  Multipliers (ADMM) framework and solved in a way similar to an earlier work~\cite{zhang2018systematic}. 
+The optimization problem (Eq. ~\ref{eq:loss}) is equivalent to:
+\begin{align}
+    & \min_{\{W_l^q\}\}} f(\{W_l^q\}_{l=1}^{L}) + \lambda \sum_{l=1}^L\|W_l^q\|_F^2 + \sum_{l=1}^{L}{g_l(W_l^q)}, \label{eq:loss_without_constraint}
+\end{align}
+where $g_l(W_l^q) = \begin{cases}
+    0,& \text{if } W_l^q \in S_l\\
+    +\infty,              & \text{otherwise}.
+\end{cases}$. 
+Rewriting Eq.~\ref{eq:loss_without_constraint} in the ADMM framework leads to:
+\begin{align}
+    & \min_{\{W_l^q\}} f(\{W_l^q\}_{l=1}^{L}) + \lambda \sum_{l=1}^L\|W_l^q\|_F^2 + \sum_{l=1}^{L}{g_l(Z_l)}, \\
+    & s.t. \quad W_l^q = Z_l, l = 1, \cdots, L 
+\end{align}
+
+ADMM alternates between the optimization of model parameters ($\{W_l^q\}_{l=1}^L$ and the auxiliary variables $\{Z_l\}_{l=1}^L$ by repeating the following three steps for $k=1, 2, \cdots$ :
+\begin{align}
+    \{W_l^{q, k+1}\}_{l=1}^L = & \arg\min_{\{W_l^q\}_{l=1}^L} f(\{W_l^q\}_{l=1}^L)  + \lambda \sum_{l=1}^L\|W_l^q\|_F^2 + \gamma \sum_{l=1}^{L}{\|W_l^q - Z_l + U_l^k\|_F^2}, \label{eq:sgd}\\
+    \{Z_l^{k+1}\}_{l=1}^L = & \arg \min_{\{Z_l\}_{l=1}^L} \sum_{l=1}^{N} g_l(Z_l) + \sum_{l=1}^{L}\frac{\lambda}{2}{\|W_l^{q, k+1} - Z_l + U_l^k\|_F^2}, \label{eq:admm} \\
+    U_l^{k+1} = & U_l^{k} + W_l^{q, k+1} - Z_l^{k+1}.
+\end{align}
+until the two conditions are met: $\|W_l^{q, k+1} - Z_l^{k+1}\|_F^2 \leq \epsilon$ and $\|Z_l^{k+1} - Z_l^{k}\|_F^2 \leq \epsilon$.  
+
+
+Problem~\ref{eq:sgd} can be solved using stochastic gradient descent (SGD) as the objective function is differentiable. The optimal solution to the problem~\ref{eq:admm} is the projection of $W_l^{q, k+1} + U_l^k$ to set $S_l$. In the implementation, we set a value in a 64-data block to 63 or -64 if the value is not in the eighth position and is larger than 63 or smaller than -64.  
+
+
+Previous work has successfully applied the ADMM framework to CNN weight pruning~\cite{zhang2018systematic} and CNN weight quantization~\cite{ren2019admm} and shown remarkable compression results. 
+% Despite of the nice convergence properties of ADMM and the strong similarity between the problem formulation in Eq.~\ref{eq:loss_without_constraint} and the previous work,  
+But when it is applied to our problem, experiments show that ADMM-based training cannot help reduce the number of large values in the first seven positions of a 64-bit data block. Moreover, as the ADMM-based training cannot guarantee that the constrain in Eq.~\ref{eq:constraint} is satisfied, it is necessary to bound the reamining large quantized values in the first 7 positions to 63 or -64 after the training, resulting in large accuracy drops.  Instead of ADMM-based training, WOT adopts an alternative approach described below. 
+
+% At the end of ADMM-based training, if there are still large values remaining in the first seven bytes of any 64-bit data block, they are set to 63 (or -64). 
+
+\paragraph{QAT with Throttling (QATT)} Our empirical explorations indicate that a simple quantization-aware training (QAT) procedure combined with weight throttling can  make the weights meet the constraint without jeopardising the accuracy of a 8-bit quantized model. The training process iterates the following major steps for each batch:
+\begin{enumerate}
+    
+    \item \textbf{QAT:} It involves forward-propagation using quantized parameters ($\{W_l^{q}\}_{l=1}^L$ and $\{b_l^{q}\}_{l=1}^L$) to get the loss defined in Equation~\ref{eq:loss}, back-propagation using quantized parameters, a update step that applies float32 gradients to update float32 parameters ($\{W_l\}_{l=1}^L$ and $\{b_l\}_{l=1}^L$), and a quantization step that gets the new quantized parameters from their float32 version.  
+    
+    \item \textbf{Throttling:} It forces the quantized weights to meet the constraints defined in Eq.~\ref{eq:constraint}: If any value in the first seven bytes of a 64-bit data block is larger than 63 (or less than -64), set the value to 63 (or -64). The float32 versions are updated accordingly.
+     
+\end{enumerate}
+
+After the training, all of the values in the first seven positions of a 64-bit data block are ensured to be within the range of $[-64, 63]$, eliminating the need of storing large value positions for the in-place ECC. It is worth noting that with WOT, all tested CNNs converge without noticeable accuracy loss compared to the 8-bit quantized versions as Section~\ref{sec:eval} shows.    
+
+
+
+
+\subsection{Full Design of In-Place Zero-Space ECC}
+% \TODO{[HUI; HW part by ZHOU] 1page}}
+% \TODO{Explain this method, the hardware support, its features (guarantees, 0-space, needs ECC and simple hw extensions), the scenarios where it should be chosen. The description should connect to WOT: It removes the need for hardware buffer to store indices of large weights, the weak points caused by indices, and all space cost.}
+
+In this part, we provide the full design of {\em in-place zero-space ECC}. For a given CNN, it first applies WOT to regularize the CNN. After that, it conducts in-place error check encoding. The encoding uses the same encoding algorithm as the standard error-correction encoding methods do; the difference lies only in where the error check bits are placed. 
+
+There are various error-correction encoding algorithms. 
+% For one algorithm, there could be many variants. For instance, the number of ECC check bits may vary and hence vary the required protection strength: the higher the protection strength, the more ECC check bits for protecting data with the same length. The most popular SEC-DED $[72, 64, 8]$ code in computer systems requires eight check bits to encode a 64-bit data block into a 72-bit long codeword such that a single-bit error can be corrected and double-bit errors can be detected. A more powerful BCH $[63, 51, 12]$ code~\cite{costello1983error} requires 12 check bits to encode 51-bit data block to a 63-bit long codeword such that a double-bit error can also be corrected. 
+In principle, our proposed in-place ECC could be generalized to various codes; we focus our implementation on SEC-DED codes for its popularity in existing hardware-based memory protections for CNN.  
+
+Our in-place ECC features the same protection guarantees as the popular SEC-DED $(72, 64, 1)$ code but at zero-space cost.
+The in-place ECC uses the SEC-DED $(64, 57, 1)$ code instead of $(72, 64, 1)$ to protect a 64-bit data block with the same protection strength. It distributes the seven error check bits into the non-informative bits in the first seven weights. 
+
+% For a 64-bit data block to be protected, if seven out of eight values are within the range of $[-64, 63]$, the seven check bits can be stored in these values in-place instead of consuming extra storage. 
+% A simple generalization to BCH-based protection would be using six out of eight values that are within the range of $[-32, 31]$ to store the 12 check bits.
+% The need to store the indices of large weights so that they can be recovered after ECC decoding can be eliminated through WOT, leading to zero-space cost. 
+
+As the ECC check bits are stored in-place, a minor extension to the existing ECC hardware is required to support ECC decoding. As shown in Figure~\ref{fig:hardware}, the in-place ECC check bits and data bits are swizzled to the right inputs to the standard ECC logic. The output of the ECC logic is then used to recover the original weights: for each small weight (first seven bytes in a 8-byte data block), simply copy the sign bit to its non-informative bit. As only additional wiring is needed to implement this copy operation, no latency overhead is incurred to the standard ECC logic.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{NeuRIPS2019/images/hardware/ecc-with-wot-crop.pdf}
+    % \vspace{-0.08in}
+    \caption{Hardware design for in-place zero-space ECC protection.}
+    \label{fig:hardware}
+\end{figure}
+
+
+% Figure~\ref{fig:large_weight_distribution} shows the histogram of large weights (beyond $[-64, 63]$) in 8-byte memory blocks storing CNN weights. For instance, the first bar in Figure~\ref{fig:large_weight_distribution} (a) shows that of all the 8-byte data blocks storing VGG16 weights, 430 of them have a large weight at the first byte. Overall the distribution is close to uniform.
+
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% \subsection{Observations}
+
+% Three key observations of CNN underpin this study.
+
+% \begin{observation}\label{ob:small_value}
+% Weights of a well-trained CNN are mostly small values.
+% \end{observation}
+
+% The row \textit{percentage} in Table~\ref{tab:weight_distribution} shows the distribution of the absolute value of weights in 8-bit quantized CNN models. The absolute values of more than 99\% of weights are less than 64. Even though eight bits are used to represent each weight, if we already know that the absolute value of a weight is less than 64, the number of effective bits to represent the value would be at most seven, and the other bit could be possibly used for other purposes---such as error correction. We call it a {\em non-informative bit}).
+
+% \begin{table}[]
+% \small 
+% \centering 
+% \setlength{\tabcolsep}{0.04cm}
+% \caption{Accuracy and Weight distribution of 8-bit quantized CNN models on ImageNet. Accuracies are measured using 5K images. Pre-trained models are from torchvision\footnote{\url{https://pytorch.org/docs/master/torchvision}}.}
+% \label{tab:weight_distribution}
+% \begin{tabular}{|l|l|l|l|l|l|l|l|l|l|}
+% \hline
+% \multicolumn{2}{|l|}{Model} & AlexNet & VGG16 & VGG16\_bn & ResNet18 & ResNet34 & Inception\_V3 & DenseNet & SqueezeNet \\ \hline\hline
+% \multicolumn{2}{|l|}{\#weights} & 61.1M & 138.3M & 138.3M & 11.7M & 21.8M & 27.1M & 28.5M & 1.2M \\ \hline\hline
+% \multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}Accuracy\\ (\%)\end{tabular}} & Float32 & 64.86 & 79.2 & 80.48 & 76.54 & 79.88 & 77.14 & 83.02 & 67.46 \\ \cline{2-10} 
+%  & Int8 & 64.8 & 79.36 & 80.14 & 76.46 & 79.88 & 76.58 & 83.04 & 66.86 \\ \hline\hline
+% \multirow{3}{*}{\begin{tabular}[c]{@{}l@{}}Percentage\\ (\%)\end{tabular}} & {[}0, 32) & 95.09 & 97.69 & 98.84 & 99.56 & 99.72 & 98.23 & 98.79 & 95.16 \\ \cline{2-10} 
+%  & {[}32, 64) & 4.88 & 2.27 & 1.16 & 0.42 & 0.27 & 1.71 & 1.13 & 4.62 \\ \cline{2-10} 
+%  & {[}64, 128) & 0.03 & 0.04 & 0.01 & 0.02 & 0.02 & 0.05 & 0.08 & 0.22 \\ \hline
+% \end{tabular}
+% \end{table}
+
+
+% \begin{observation}\label{ob:bit_significance}
+% Least significant bits, once flipped due to memory faults, cause negligible or no accuracy drop to CNNs. 
+% \end{observation}
+
+% \begin{figure}
+%   \centering
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/bit_significance/vgg16_2_int8_bit_significance.pdf}
+%     \caption{VGG16}
+%   \end{subfigure}
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/bit_significance/resnet56_2_int8_bit_significance.pdf}
+%     \caption{ResNet56}
+%   \end{subfigure}
+%   \caption{The accuracy drops of the CNNs with various fault rates at eight bit positions (0: most significant bit). Faults are injected to only the second convolutional layer. Other layers show the similar pattern. Dataset is Cifar10.  }
+%   \label{fig:bit_significance}
+% \end{figure}
+
+% Figure~\ref{fig:bit_significance} shows the accuracy drops of the CNNs after injecting faults to different bit positions. The most significant bit cause the largest accuracy drops, suggesting that bits of higher significance have the highest priority in error correction. On the contrary, flipping the least significant bit causes negligible or no accuracy drop to CNNs. 
+
+% \begin{observation} \label{ob:distribution}
+% The distributions of large weights in 8-byte memory blocks are random. 
+% \end{observation}
+
+% \begin{figure}
+%   \centering
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/position/large_weight_distribution_vggCifar10.pdf}
+%     \caption{VGG16}
+%   \end{subfigure}
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/position/large_weight_distribution_squeezenetImagenet.pdf}
+%     \caption{SqueezeNet}
+%   \end{subfigure}
+%   \caption{Large weight (beyond $[-64, 63]$) distributions in 8-byte (64-bit data) blocks.}
+%   \label{fig:large_weight_distribution}
+% \end{figure}
+
+% Figure~\ref{fig:large_weight_distribution} shows the histogram of large weights (beyond $[-64, 63]$) in 8-byte memory blocks storing CNN weights. For instance, the first bar in Figure~\ref{fig:large_weight_distribution} (a) shows that of all the 8-byte data blocks storing VGG16 weights, 430 of them have a large weight at the first byte. Overall the distribution is close to uniform.
+% % \TODO{[LIN] Graphs and explanations.}
+
+% \subsection{Basic Ideas and Challenges}
+% The first two observations motivate the design of our memory fault protections, while the third observation entails challenges. We explain the basic ideas of our designs first, and gives a thorough explanation in the next section.
+
+% Our first method, {\em in-place ECC}, builds on Observation~\ref{ob:small_value}. The core idea is to use {\em non-informative bits} in CNN parameters to store error check bits. For example, the commonly used SEC-DED $[64, 57, 7]$ code uses seven check bits to protect 57 data bits; they together form a 64-bit code word. If seven out of eight consecutive weights are in range $[-64, 63]$, we can then have seven non-informative bits, one per small weight. The essential idea of {\em in-place ECC} is to use them to store the error check bits for the other bits of the eight weights. By embedding the check bits into the data, it can hence avoid space cost.
+
+% Our second method, {\em majority-vote protection}, builds on Observation~\ref{ob:bit_significance}. It is designed for low error rate scenarios, and focuses on protecting the three most important bits in a weight as their flips would cause large accuracy drops as per Observation~\ref{ob:bit_significance}. Its error correction only applies to weights in range $[-32, 31]$. An observation is that for such a value, its first three (i.e., most significant) bits must be either all zeros or all ones. At runtime, if faults happen to such a value, {\em majority-vote protection} corrects the faults by simply setting the first three bits to all zeros if zeros are their majority or all ones otherwise. For the simplicity, this method eliminates the needs for ECC or other hardware for protection. 
+
+% Both solutions face some challenges stemming from Observation~\ref{ob:distribution}. For {\em in-place ECC}, as the positions of large weights are random, there is a need to record the locations of large weights such that they can be recovered after ECC decoding. It not only causes space cost, but also introduces weak points for protection---the locations. For {\em majority-vote protection}, it would need to introduce extra data structures to indicate the locations of small values. 
+% % because it applies only to values within the range of $[-32, 31]$, there is a large space cost to encode whether a value should be protected using this method. 
+
+% % \TODO{This part only needs to give a brief explanation of the basic ideas of the two protection schemes. Section~\ref{sec:enhanced} will give a thorough explanation.
+
+% % Observations 1 leads to in-place ECC. The core idea is to use non-informative bits in CNN parameters to store check bits in-place.
+
+% % Observation 2 leads to majority-vote protection.
+
+% % Observation 3 leads to challenges as described next.
+% % }
+
+% % \paragraph{Challenges}
+
+% % \TODO{
+% %   Describe the problems Observation 3 entails to the two protection methods. For the in-place ECC, there would need to be indices of large weights, which not only causes space cost, but also the weak points for protection (i.e., the indices). For the majority vote method, there is a large space cost. 
+% % }
+
+% \section{Solution II: Majority-Vote Protection}
+% % \TODO{[ZHOU+ZHEN] 0.75page}}
+
+% Our solution I eliminates space cost of ECC protection. It however still requires the ECC units. We further explore when error rate is low, whether it is possible to remove even the needs for ECC logic, which would save even more hardware costs and energy expense. 
+
+% Our second method, {\em majority-vote protection}, is designed to this end. It focuses on protecting the three most important bits in a weight, as their flips would cause large accuracy drops as per the following observation. 
+
+% \begin{observation}\label{ob:bit_significance}
+% Least significant bits, once flipped due to memory faults, cause negligible or no accuracy drop to CNNs. 
+% \end{observation}
+
+% Figure~\ref{fig:bit_significance} shows the accuracy drops of the CNNs after injecting faults to different bit positions. The most significant bit cause the largest accuracy drops, suggesting that bits of higher significance have the highest priority in error correction. On the contrary, flipping the least significant bit causes negligible or no accuracy drop to CNNs. 
+% \begin{figure}
+%   \centering
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/bit_significance/vgg16_2_int8_bit_significance.pdf}
+%     \caption{VGG16}
+%   \end{subfigure}
+%   \begin{subfigure}{.4\textwidth}
+%     \includegraphics[width=\textwidth]{NeuRIPS2019/images/bit_significance/resnet56_2_int8_bit_significance.pdf}
+%     \caption{ResNet56}
+%   \end{subfigure}
+% %   \vspace{-0.08in}
+%   \caption{The accuracy drops of the CNNs with various fault rates at eight bit positions (0: most significant bit). Faults are injected to only the second convolutional layer. Other layers show the similar pattern. Dataset is Cifar10.  }
+%   \label{fig:bit_significance}
+% \end{figure}
+
+% \paragraph{Design} The error correction of {\em majority-vote protection} applies specifically to weights in range $[-32, 31]$. An observation is that for such a value, its first three (i.e., most significant) bits must be either all zeros (non-negative values) or all ones (negative values). 
+% Therefore, a single bit flip error in these three bits can be corrected using majority vote. The simplicity makes this method implementable efficiently in software, and hence eliminates the needs for ECC or other hardware for protection. 
+
+% For {\em majority vote protection} to work, it needs to encode the information of which weights are in the range $[-32, 31]$. We use a bit-vector (called {\em size bit-vector}), with one bit for each weight; 1 for a small weight and 0 otherwise. A possible option is to apply WOT first (with 32 as the bound of small absolute values), and then use a coarse-grained bit vector to encode the information (i.e., one bit for every 8 weights; 0 means all 8 weights are small, and 1 means that the 8th weight is large) to save space. We leave this option for future explorations.
+
+% % Error checking and correction work as follows. For an 8-weight block, if its corresponding size bit is 0, majority vote applies to the first three bits of all the eight weights; otherwise, only to the first seven weights.
+% Error test is implemented with bit-wise operations, $[(W>>5) \bigoplus 0b111]|(W>>5)$ ($W$ is a weight), which use the shift operation to get the 3 most significant bits of a weight and tests whether they are 111 or 000 using the XOR operation. The bit-wise operation is amenable to SIMD/vectorization to improve the throughput of software implementation, which leads to minor performance overhead compared to CNN inference latency as next section shows.  
+
+% Unlike Solution I which gives protection guarantees, majority-vote protection does not. It is designed for low error rate scenarios. It protects the three most significant bits of small weights only, and could possibly (rarely) make a large weight small\footnote{Prior studies~\cite{reagen2016minerva} have shown that making few weights smaller (even to zeros) tend to have little effects on CNN accuracy.} due to the flip of a size bit from 0 to 1. But in practice, when error rate is low, this method gives comparable protection effects as standard ECC does, as we will see next.  
+
+    
+% \TODO{Explain this method (the design for error fix is interesting), brief on the most interesting aspect of its implementation (e.g., vectorization), state its features (protection it offers, space cost, no need for ECC or other hw extensions), and the scenarios where it should be chosen. The description should connect to WOT: It reduces the space cost from 1/8 to 1/64 without compromising the protection strength.}
+
+\section{Evaluations}
+\label{sec:eval}
+% \TODO{[HUI]2pages}}
+
+We conducted a set of experiments to examine the efficacy of the proposed techniques in fault protection and overhead. We first describe our experiment settings in Section~\ref{sec:settings} and then report the effects of WOT and the proposed fault protection technique in Sections~\ref{sec:wot_results} and~\ref{sec:fault_injection_results}.
+
+% We first describe our experiment settings in Section~\ref{sec:settings} and then report the effects of WOT and the proposed fault protection technique in Sections~\ref{sec:wot_results} and Section~\ref{sec:fault_injection_results}.
+
+
+
+\subsection{Experiment Settings}
+\label{sec:settings}
+\paragraph{Models, Datasets, and Machines}
+% We focus on convolutional neural networks in CNNs for their importance for many safety-critical applications. 
+
+The models we used in the fault injection experiments include VGG16~\cite{simonyan2014very}, ResNet18~\cite{he2016deep}, and SqueezeNet~\cite{iandola2016squeezenet}. 
+% The three models cover a certain variety of popular CNNs. 
+We choose these CNN models as representatives because: 1) VGG is a typical CNN with stacked convolutional layers and widely used in transfer learning because of its robustness. 2) ResNets are representatives of CNNs with modular structure (e.g. Residual Module) and are widely used in advanced computer vision tasks such as object detection. 3) SqueezeNet has much fewer parameters and represents CNNs that are designed for mobile applications. 
+The accuracies of these models are listed in Table~\ref{tab:weight_distribution}. By default, We use the ImageNet dataset~\cite{deng2009imagenet} (ILSVRC 2012) for model training and evaluation.
+% Cifar10~\cite{krizhevsky2009learning} are also used. 
+All the experiments are performed with PyTorch 1.0.1  on machines equipped with a 40-core 2.2GHz Intel Xeon Silver 4114 processor, 128GB of RAM, and an NVIDIA TITAN Xp GPU with 12GB memory. Distiller~\cite{neta_zmora_2018_1297430} is used for 8-bit quantization. The CUDA version is 10.1. 
+
+\paragraph{Counterparts for Comparisons}
+
+We compare our method (denoted as \textbf{in-place}) with the following three counterparts:
+\begin{itemize}  \setlength\itemsep{0.01em}
+    \item \textbf{No Protection (faulty):} The CNN has no memory protection.
+    \item \textbf{Parity Zero (zero):} It adds one parity bit to detect single bit errors in an eight-bit data block (e.g. a single weight parameter). Once errors are detected, the weight is set to zero\footnote{We have tried to set a detected faulty weight to the average of its neighbors but found it has worse performance than Parity Zero.}.    
+    \item \textbf{SEC-DED (ecc)} It is the traditional SEC-DED $[72, 64, 1]$ code-based protection in computer systems~\cite{sridharan2015memory}.  
+\end{itemize}
+
+There are some previous proposals~\cite{reagen2016minerva, azizimazreah2018tolerating} of memory protections, which are however designed for special CNN accelerators and provide without protection guarantees. The parity and ECC represent the state of the art in the industry for memory protection that work generally across processors and offer protection guarantees, hence the counterparts for our comparison.
+
+
+
+\subsection{WOT results}
+\label{sec:wot_results} 
+% \TODO{
+% Distributions of large weights: use a graph to show the distribution changes as the training goes; mention that WOT is successful in placing all large weights to the last byte in a 8-byte memory segment.}
+
+We evaluate the efficiency of WOT using the CNNs shown in Table~\ref{tab:weight_distribution}. All the models are pre-trained on ImageNet (downloaded from TorchVision\footnote{\url{https://pytorch.org/docs/master/torchvision/}}). We set $\lambda$ to $0.0001$ for all of the CNNs. Model training uses stochastic gradient descent with a constant learning rate 0.0001 and momentum 0.9. Batch size is 32 for VGG16\_bn and ResNet152, 64 for ResNet50 and VGG16, and 128 for the remaining models. Training stops as long as the model accuracy after weight throttling reaches its 8-bit quantized version. 
+
+Figure~\ref{fig:large_weight_change} shows the changes of the total number of large values that are beyond $[-64, 63]$ in the first seven positions of 8-byte blocks during the training on six of the CNNs. WOT successfully reduces this number from more than 3,500--80,000 to near 0 for the models before throttling during the training process. The remaining few large values in non-eighth positions are set to -64 or 63 at the end of WOT. Note that VGG16\_bn has around 10000 large values in the non eighth positions after 8k iterations. Although more iterations further reduce this number, VGG16\_bn can already reach its original accuracy after weight throttling. 
+% \TODO{It seems that VGG16\_bn is an outlier, and may need a few words on it here. BTW, the trend seems to indicate that more iterations may further reduce large weights for it, correct?.}
+
+
+The accuracy curves of the models in the WOT training are shown in Figure~\ref{fig:wot_accuracy}. Overall, after WOT training, the original accuracy of all the six networks are fully recovered. During the training, the gap between the accuracy before throttling and after throttling is gradually reduced. For example, the top-1 accuracy of SqueezeNet after 8-bit quantization is $57.01\%$. After the first iteration of WOT, the accuracy before weight throttling is $31.38\%$ and drops to $11.54\%$ after throttling. WOT increases the accuracy to  $57.11\%$ after 46k iterations with batch size 128 (around 4 epochs). All the other CNNs are able to recover their original accuracy in only a few thousands of iterations. An exception is VGG16, which reaches an accuracy of 71.50\% (only 0.01\% accuracy loss) after 20 epochs of training.   
+
+% For VGG16 on Cifar10, the top-1 accuracy after 8-bit quantization is $93.75\%$. After weight throttling, the accuracy drops slightly. throttling-based training increases the accuracy to $93.76\%$ after 17 epochs. 
+
+% For ResNet18, the number of large values in the first seven positions of 64-bit data blocks is 2376. The accuracy drops to 59.21\% after throttling these weights and recovers to 69.15\% after WOT with only 2K iterations. 
+
+% Similar trends are observed on the other two networks: after WOT training, the original accuracy of all the networks are fully recovered. 
+
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/alexnet_counts.pdf}
+    \caption{AlexNet}
+  \end{subfigure}
+    \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/vgg16_bn_counts.pdf}
+    \caption{VGG16\_bn}
+  \end{subfigure}
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet18_counts.pdf}
+    \caption{ResNet18}
+  \end{subfigure}
+    \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet34_counts.pdf}
+    \caption{ResNet34}
+  \end{subfigure}
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet50_counts.pdf}
+    \caption{ResNet50}
+  \end{subfigure}
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/squeezenet1_0_counts.pdf}
+    \caption{SqueezeNet}
+  \end{subfigure}
+  \vspace{-0.08in}
+  \caption{Changes of the total number of large values (beyond $[-64, 63]$) in the first 7 positions of 8-byte (64-bit data) blocks before the throttling step during the WOT training process.}
+  \label{fig:large_weight_change}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/alexnet_accuracy.pdf}
+    \caption{AlexNet}
+    \end{subfigure}
+      \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/vgg16_bn_accuracy.pdf}
+    \caption{VGG16\_bn}
+    \end{subfigure}
+\begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet18_accuracy.pdf}
+    \caption{ResNet18}
+    \end{subfigure}
+    \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet34_accuracy.pdf}
+    \caption{ResNe34}
+    \end{subfigure}
+\begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/resnet50_accuracy.pdf}
+    \caption{ResNet50}
+    \end{subfigure}
+  \begin{subfigure}{.32\textwidth}
+    \includegraphics[width=\textwidth]{NeuRIPS2019/images/WOT_new/squeezenet1_0_accuracy.pdf}
+    \caption{SqueezeNet}
+  \end{subfigure}
+  \vspace{-0.08in}
+  \caption{Accuracy curves before and after the throttling step during the WOT training process.}
+  \label{fig:wot_accuracy}
+\vspace{-0.1in}
+\end{figure}
+
+\subsection{Fault injection results}
+\label{sec:fault_injection_results}
+
+In this set of experiments, we inject faults to CNN models and report the accuracy drops of CNN models protected using different strategies. The fault model is random bit flip. Faults are injected to the weights of CNNs with memory fault rates varying from $10^{-9}$ to $0.001$. The number of faulty bits is the product of the number of bits used to represent weights of a CNN and the memory fault rate. We repeated each fault injection experiment ten times.
+
+% Figure~\ref{fig:accuracy_drop} shows the box-plots of accuracy drops with different protection strategies. When the fault rate is 0.001, without protection, the accuracy drops are too much for all the three models and are thus not shown in the plots to keep other boxes readable. 
+
+
+
+Table~\ref{tab:vgg16} shows the mean accuracy drops with standard deviations under different memory fault rates and the overheads introduced by the protection strategies for each model. 
+% Overall, the Majority-Vote protection shows smaller accuracy drops compared to the Parity Zero protection, demonstrating the stronger protection strength by Majority-Vote protection. 
+Overall, the in-place ECC protection and standard SEC-DED show similar accuracy drop patterns under various fault rate settings as expected because they provide the same error correction capability, i.e., correcting a single bit error and detecting double bit errors in a 64-bit data block. Both of the methods provide stronger fault protection compared with the Parity Zero method. 
+% 
+The space overhead is the ratio between the extra number of bytes introduced by a protection strategy and the number of bytes required to store weights. Parity Zero and SEC-DED encode 8-byte data with extra eight check bits on average, making their space overhead 12.5\%. In contrast, in-place ECC has zero space cost.  
+
+% Parity Zero and Majority-Vote are software implementations and incur some time overhead. But the time overhead is marginal in both cases: 0.04-0.08\% for SqueezeNet, 0.13-0.27\% for ResNet16, and 2.77-3.98\% for VGG16. 
+% The time overhead for VGG16 is relatively higher than the other two models because VGG16 has smaller inference latency (1.7 ms for VGG16 and 3.7 ms for ResNet18 and SqueezeNet) due to the fewer number of convolutional layers and not using batch-normalization layers but much larger number of weights to decode (11.8X compared with ResNet18 and 115.3X compared with SqueezeNet). 
+
+
+% The time overhead of SEC-DED and our in-place ECC are not reported as they are relies on ECC hardware logic for decoding. 
+% \TODO{We need to mention something about the time overhead that the extra HW extension may incur, arguing convincingly that it is negligible.}
+
+The fault injection experiments give the following insights on memory fault protection for CNNs. First, larger models tend to suffer less from memory faults. For example, when fault rate is 0.0001 and no protection is applied, the accuracy drops of VGG16, ResNet18, SqueezeNet (less than 2\%, 8\%, and 16\% respectively) are increasing while the model size is decreasing (number of parameters are 138M, 12M, and 1.2M respectively).  
+Second, when the fault rate is small (e.g. less than 1e-05), in-place ECC and standard SEC-DED can almost guarantee the same accuracy as the fault-free model. Overall, the experiments confirm the potential of in-place zero-space ECC as an efficient replacement of the standard ECC without compromising the protection quality.
+% When accuracy drop is not tolerable, it is necessary to apply ECC-based protections (e.g. in-place protection) to ensure the reliability of the inference results. 
+% Thirdly, compared with ECC-based protections, sotfware-based Parity Zero protection offers a lightweight solution that needs no hardware support. Our implementation on NVIDIA TITAN Xp GPUs shows that its time overhead is marginal compared to the CNN inference: 0.04\% for SqueezeNet, 0.13\% for ResNet16, and 2.77\% for VGG16.  As Parity Zero can prevent significant accuracy drops, it could be a possible option when in-place ECC is not feasible for the associated energy expense or hardware cost.     
+
+% \begin{figure}
+% 	\centering
+% 	\begin{subfigure}{.3\textwidth}
+% 		\includegraphics[width=\textwidth]{NeuRIPS2019/images/protection/vgg16_int8_accuracy_drop.pdf}
+% 		\caption{VGG16}
+% 	\end{subfigure}
+% 	\begin{subfigure}{.3\textwidth}
+% 		\includegraphics[width=\textwidth]{NeuRIPS2019/images/protection/resnet18_int8_accuracy_drop.pdf}
+% 		\caption{ResNet18}
+% 	\end{subfigure}
+% 	\begin{subfigure}{.3\textwidth}
+% 		\includegraphics[width=\textwidth]{NeuRIPS2019/images/protection/squeezenet_int8_accuracy_drop.pdf}
+% 		\caption{SqueezeNet}
+% 	\end{subfigure}
+% 	\vspace{-0.05in}
+% 	\caption{Accuracy drops with different protection strategies. Upper and lower bars indicate the highest and lowest accuracy drop. The bar inside the box is the median among the ten trials. }
+% 	\label{fig:accuracy_drop}
+% % 	\vspace{-0.18in}
+% \end{figure}
+
+
+% Please add the following required packages to your document preamble:
+% \usepackage{multirow}
+\begin{table}[t]
+\centering 
+\caption{Accuracy drop of VGG16, ResNet16, and SqueezeNet under different memory fault rates.}\label{tab:vgg16}
+\scriptsize  
+
+\begin{tabular}{|l|l|l|l|l|l|l|l|}
+\hline
+\multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}Model\end{tabular}} &
+\multirow{2}{*}{Strategy} & \multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}ECC HW\\ (Y/N)\end{tabular}} &  \multirow{2}{*}{\begin{tabular}[c]{@{}l@{}}Space \\ Overhead (\%)\end{tabular}} & \multicolumn{4}{l|}{Accuracy drop (\%) under different fault rate} \\ \cline{5-8} 
+&  &  &  & 1e-06 & 1e-05 & 1e-04 & 1e-03 \\ \hline\hline 
+\multirow{4}{*}{VGG16} & faulty & N & 0 & 0.31 $\pm$ 0.08 & 0.47 $\pm$ 0.09 & 1.35 $\pm$ 0.2 & 21.93 $\pm$ 5.7 \\ \cline{2-8}
+& zero & N & 12.5 & 0.27 $\pm$ 0.05 & 0.36 $\pm$ 0.08 & 0.43 $\pm$ 0.13 & 1.04 $\pm$ 0.31 \\ \cline{2-8}
+% & vote & N & 12.5 & 0.24 $\pm$ 0.06 & 0.31 $\pm$ 0.12 & 0.35 $\pm$ 0.06 & 0.97 $\pm$ 0.33 \\ \cline{2-8}
+& ecc & Y & 12.5 & 0.0 $\pm$ 0.0 & 0.02 $\pm$ 0.02 & 0.35 $\pm$ 0.06 & 0.96 $\pm$ 0.14 \\ \cline{2-8}
+& in-place & Y & 0 & 0.0 $\pm$ 0.0 & 0.02 $\pm$ 0.02 & 0.37 $\pm$ 0.07 & 0.93 $\pm$ 0.23 \\ \hline
+\hline 
+\multirow{4}{*}{\begin{tabular}[c]{@{}l@{}}ResNet18\end{tabular}} & faulty & N & 0 & -0.09 $\pm$ 0.1 & 0.35 $\pm$ 0.23 & 4.35 $\pm$ 1.12 & 72.96 $\pm$ 1.48 \\ \cline{2-8}
+& zero & N & 12.5 & -0.06 $\pm$ 0.08 & -0.08 $\pm$ 0.13 & 0.59 $\pm$ 0.3 & 4.35 $\pm$ 1.21 \\ \cline{2-8}
+% & vote & N & 12.5 & -0.04 $\pm$ 0.13 & -0.09 $\pm$ 0.06 & 0.17 $\pm$ 0.21 & 2.72 $\pm$ 0.61 \\ \cline{2-8}
+& ecc & Y & 12.5 & 0.0 $\pm$ 0.0 & 0.0 $\pm$ 0.01 & -0.03 $\pm$ 0.08 & 2.8 $\pm$ 0.31 \\ \cline{2-8}
+& in-place & Y & 0 & 0.0 $\pm$ 0.0 & 0.0 $\pm$ 0.01 & -0.08 $\pm$ 0.09 & 2.96 $\pm$ 0.81 \\ \hline \hline 
+\multirow{4}{*}{\begin{tabular}[c]{@{}l@{}}SqueezeNet\end{tabular}} & faulty & N & 0 & 0.12 $\pm$ 0.13 & 0.69 $\pm$ 0.31 & 9.39 $\pm$ 2.37 & 64.83 $\pm$ 0.5 \\ \cline{2-8}
+& zero & N & 12.5 & 0.09 $\pm$ 0.12 & 0.11 $\pm$ 0.2 & 0.66 $\pm$ 0.29 & 8.16 $\pm$ 2.4 \\ \cline{2-8}
+% & vote & N & 12.5 & 0.03 $\pm$ 0.1 & 0.11 $\pm$ 0.1 & 0.31 $\pm$ 0.17 & 4.96 $\pm$ 1.4 \\ \cline{2-8}
+& ecc & Y & 12.5 & 0.0 $\pm$ 0.0 & 0.0 $\pm$ 0.0 & 0.12 $\pm$ 0.09 & 5.37 $\pm$ 0.66 \\ \cline{2-8}
+& in-place & Y & 0 & 0.0 $\pm$ 0.0 & 0.0 $\pm$ 0.0 & 0.12 $\pm$ 0.09 & 5.19 $\pm$ 1.08 \\ \hline
+\end{tabular}
+\vspace{-0.1cm}
+\end{table}
+
+
+\section{Future Directions}
+
+Besides 8-bit quantizations, there are proposals of even fewer-bit quantizations for CNN, in which, there may be fewer non-informative bits in weight values. It is however worth noting that 8-bit quantization is the de facto in most existing CNN frameworks; it has repeatedly shown in practice as a robust choice that offers an excellent balance in model size and accuracy. Improving the reliability of such models is hence essential. With that said, creating zero-space protections that works well with other model quantizations is a direction worth future explorations.
+
+A second direction worth exploring is to extend the in-place zero-space protection to other error encoding methods (e.g., BCH~\cite{costello1983error}). Some of them require more parity bits, for which, the regularized training may need to be extended to create more free bits in data. 
+
+Finally, in-place zero-space ECC is in principle applicable to neural networks beyond CNN. Empirically assessing the efficacy is left to future studies. 
+
+\section{Conclusions}
+
+This paper presents {\em in-place zero-space ECC} assisted with a new training scheme named WOT to protect CNN memory. The  protection scheme removes all space cost of ECC without compromising the reliability offered by ECC, opening new opportunities for enhancing the accuracy, energy efficiency, reliability, and cost effectiveness of CNN-driven AI solutions. 
+
+\paragraph{Acknowledgement}
+We would like to thank the anonymous reviews for their helpful feedbacks. This material is based upon work supported by the National Science Foundation (NSF) under Grant 
+No. CCF-1525609, CCF-1703487, CCF-1717550, and CCF-1908406. Any opinions, comments, findings, and conclusions or recommendations expressed in this material are those of the authors and do not necessarily reflect the views of NSF. This manuscript has been authored by UT-Battelle, LLC, under contract DE-AC05-00OR22725 with the US Department of Energy (DOE). The US government retains and the publisher, by accepting the article for publication, acknowledges that the US government retains a nonexclusive, paid-up, irrevocable, worldwide license to publish or reproduce the published form of this manuscript, or allow others to do so, for US government purposes. DOE will provide public access to these results of federally sponsored research in accordance with the DOE Public Access Plan (http://energy.gov/downloads/doe-public-access-plan).
+
+\bibliography{bib} 
+\bibliographystyle{plain}
+
+\end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
